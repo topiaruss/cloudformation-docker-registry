@@ -1,8 +1,8 @@
 CloudFormation template for an S3-backed private [Docker Registry](https://github.com/dotcloud/docker-registry) with password protection and HTTPS.
 
 Prerequisites:
-* Route 53 hosted zone for the desired registry address (e.g., `mycompany.com` for `docker.mycompany.com`)
-* Trusted SSL certificate for this address (self-signed certs are [not supported](https://github.com/dotcloud/docker/pull/2687) by docker unless added to the system keystore)
+* SSL certificate (if it's untrusted, you'll need to add it to the system keystore or pass use Docker's `--insecure` option)
+* (Optional) Route 53 hosted zone for the desired registry address (e.g., `mycompany.com` for `docker.mycompany.com`)
 
 ## Overview
 
@@ -10,9 +10,9 @@ This template bootstraps a private Docker Registry.
 
 Registry servers are launched in an auto scaling group using public AMIs running Ubuntu 14.04 LTS and pre-reloaded with Docker and Runit.  If you wish to use your own image, simply modify `RegionMap` in the template file.
 
-The servers register with an Elastic Load Balancer, a CNAME for which is created in Route 53. When tagging repositories, use this (or a higher-level record) instead of the ELB's raw CNAME as your registry address instead (e.g., `docker.mycompany.com/myimage` instead of `mystack-do-ElasticL-AJK...elb.amazonaws.com/myimage`).
+The servers register with an Elastic Load Balancer, an Alias for which is created in Route 53 (if you pass `DnsZone` and `DnsPrefix`). When tagging repositories, use this (or a higher-level record) instead of the ELB's raw DNS record as your registry address instead (e.g., `docker.mycompany.com/myimage` instead of `mystack-do-ElasticL-AJK...elb.amazonaws.com/myimage`).
 
-The ELB listens on HTTPS using the specified SSL cert. Each registry server is password-protected by an nginx proxy.
+The ELB listens on HTTPS using the specified SSL cert. Each registry server is password-protected by an nginx proxy. The ELB performs health checks against `/v1/_ping`. If an instance fails these health checks for several minutes, the ASG will terminate the instance and bring up a replacement.
 
 The registry is run via a Docker image specified as a Parameter. You can use the default or provide your own.
 
@@ -24,7 +24,7 @@ Note that this template must be used with Amazon VPC. New AWS accounts automatic
 
 ### 1. Clone the repository
 ```bash
-git clone git@github.com:thefactory/cloudformation-docker-registry.git
+git clone https://github.com/mbabineau/cloudformation-docker-registry.git
 ```
 
 ### 2. Create an Admin security group
@@ -36,7 +36,7 @@ Inbound rules are at your discretion, but you may want to include access to:
 * `5000 [tcp]` - Private registry port (troubleshooting only)
 
 ### 3. Upload an SSL certificate
-Upload an SSL certificate to IAM ([instructions](http://docs.aws.amazon.com/IAM/latest/UserGuide/InstallCert.html)). This certificate must be valid for the registry DNS address and be trusted by the clients (if self-signed, you must add it to the clients' keystores).
+Upload an SSL certificate to IAM ([instructions](http://docs.aws.amazon.com/IAM/latest/UserGuide/InstallCert.html)). This certificate must be valid for the registry DNS address and be trusted by the clients (if self-signed, you must add it to the clients' keystores or use Docker's `--insecure` flag).
 
 Once uploaded, you'll need the ARN for this certificate. You can do this via [aws-cli](https://github.com/aws/aws-cli):
 ```console
@@ -71,6 +71,7 @@ Example using `aws-cli`:
 aws cloudformation create-stack \
     --template-body file://docker-registry.json \
     --stack-name <stack> \
+    --capabilities CAPABILITY_IAM \
     --parameters \
         ParameterKey=KeyName,ParameterValue=<key> \
         ParameterKey=RegistryAuth,ParameterValue='<auth_string_1>,<auth_string_2>' \
@@ -88,6 +89,7 @@ Once the stack has been provisioned, try calling the registry using credentials 
 $ curl -u <user>:<password> https://docker.mycompany.com
 "docker-registry server (prod) (v0.8.0)"
 ```
+_Note: if you didn't pass `DnsZone` and `DnsPrefix`, you'll want to set up a CNAME or Alias for the created ELB_
 
 To use the new registry, just generate a new `~/.dockercfg` by hand ([details](http://docs.docker.io/use/workingwithrepository/#authentication-file)) or via `docker login`:
 ```console

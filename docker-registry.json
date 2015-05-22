@@ -41,17 +41,17 @@
     },
     "Ami": {
       "Description": "The EC2 AMI to use. See http://cloud-images.ubuntu.com/locator/ec2/",
-      "Type": "String",
-      "Default": "ami-8827efe0"
-    },
-    "DnsPrefix": {
-      "Description": "Prefix for the registry's DNS record (<prefix>.<zone>)",
-      "Type": "String",
-      "Default": "docker"
-    },
-    "DnsZone": {
-      "Description": "Route53-hosted zone to use for the registry's DNS record (<prefix>.<zone>)",
       "Type": "String"
+    },
+    "DnsPrefix" : {
+      "Description" : "(Optional) Prefix for the registry's DNS record (<prefix>.<zone>)",
+      "Type": "String",
+      "Default": ""
+    },
+    "DnsZone" : {
+      "Description" : "(Optional) Route53-hosted zone to use for the registry's DNS record (<prefix>.<zone>)",
+      "Type": "String",
+      "Default": ""
     },
     "DockerImage": {
       "Description": "Path of the Docker Registry image to use (format: '[<registry>[:<port>]/]<repository>[:<version>]')",
@@ -62,31 +62,52 @@
       "Description": "Bucket to use for Docker images (e.g., 'mycompany-docker')",
       "Type": "String"
     },
-    "SslCertificate": {
-      "Description": "ARN of an existing SSL certificate on AWS (e.g., 'arn:aws:iam::123456789:server-certificate/docker.mycompany.com')",
-      "Type": "String"
+    "S3Region" : {
+      "Description" : "S3 Region in which the bucket resides",
+      "Type" : "String",
+      "Default" : "us-east-1"
     },
-    "Subnets": {
-      "Description": "List of VPC subnet IDs for the cluster",
+    "SslCertificate" : {
+      "Description" : "ARN of an existing SSL certificate on AWS (e.g., 'arn:aws:iam::123456789:server-certificate/docker.mycompany.com')",
+      "Type" : "String"
+    },
+    "Subnets" : {
+      "Description" : "List of VPC subnet IDs for the cluster. Note: must match the passed AvailabilityZones.",
+      "Type" : "CommaDelimitedList"
+    },
+    "VpcId" : {
+      "Description" : "VPC associated with the provided subnets",
+      "Type" : "String"
+    },
+    "RegistryAuth" : {
+      "Description" : "Comma-delimited list of htpasswd strings that grant access to the registry (e.g., 'user1:$apr1$BspgNsum$8ZdGQ/KXRFccnlRXF6StP.,user2:$apr1$BspgNsum$8ZdGQ/KXRFccnlRXF6StP.')",
       "Type": "CommaDelimitedList"
+    },
+    "AdminSecurityGroup" : {
+      "Description" : "Existing security group that should be granted administrative access (e.g., 'sg-123456')",
+      "Type" : "String"
     },
     "AvailabilityZones": {
-      "Description": "Availability zones for the cluster",
-      "Type": "CommaDelimitedList"
+      "Description" : "(Optional) If passed, only launch Docker Registry nodes in these AZs (e.g., 'us-east-1a,us-east-1b'). Note: these must match the passed Subnets.",
+      "Type" : "CommaDelimitedList",
+      "Default" : ""
     },
-    "VpcId": {
-      "Description": "VPC associated with the provided subnets",
-      "Type": "String"
-    },
-    "RegistryAuth": {
-      "Description": "Comma-delimited list of htpasswd strings that grant access to the registry (e.g., 'user1:$apr1$BspgNsum$8ZdGQ/KXRFccnlRXF6StP.,user2:$apr1$BspgNsum$8ZdGQ/KXRFccnlRXF6StP.')",
-      "Type": "CommaDelimitedList"
-    },
-    "AdminSecurityGroup": {
-      "Description": "Existing security group that should be granted administrative access (e.g., 'sg-123456')",
-      "Type": "String"
+    "HealthCheckGracePeriod": {
+      "Description": "The length of time in seconds after a new EC2 instance comes into service that Auto Scaling starts checking its health.",
+      "Type": "String",
+      "Default": "500"
     }
   },
+  
+  "Conditions" : {
+    "UseAllAvailabilityZones" : {"Fn::Equals" : [
+      { "Fn::Join" : ["", {"Ref" : "AvailabilityZones"} ]}, ""]},
+    "CreateDnsEntry" : {"Fn::And": [
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "DnsPrefix"}, ""]}]},
+      {"Fn::Not": [{"Fn::Equals" : [{"Ref" : "DnsZone"}, ""]}]}
+    ]}
+  },
+
   "Resources": {
     "Role": {
       "Type": "AWS::IAM::Role",
@@ -421,6 +442,7 @@
     },
     "DnsRecord": {
       "Type": "AWS::Route53::RecordSet",
+      "Condition": "CreateDnsEntry",
       "Properties": {
         "HostedZoneName": {
           "Fn::Join": [
@@ -465,12 +487,15 @@
       "Type": "AWS::CloudFormation::WaitConditionHandle"
     }
   },
-  "Outputs": {
-    "DnsAddress": {
-      "Description": "Docker Registry",
-      "Value": {
-        "Ref": "DnsRecord"
-      }
+
+  "Outputs" : {
+    "DnsAddress" : {
+      "Description" : "Docker Registry",
+      "Value" :  { "Fn::If" : [
+        "CreateDnsEntry",
+        { "Ref" : "DnsRecord" },
+        { "Fn::GetAtt" : [ "ElasticLoadBalancer", "DNSName" ]}
+      ]}
     }
   }
 }
