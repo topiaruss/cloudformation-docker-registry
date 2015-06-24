@@ -142,6 +142,7 @@ $ curl -vv -u <user>:<password> https://dockreg.myorg.com
 < Connection: keep-alive
 <
 * Connection #0 to host dockreg.myorg.com left intact
+"\"docker-registry server\""
 ```
 
 _Note: if you didn't pass `DnsZone` and `DnsPrefix`, you'll want to set up a CNAME or Alias for the created ELB_
