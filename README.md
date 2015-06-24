@@ -66,29 +66,84 @@ Launch the stack via the AWS console, a script, or `aws-cli`.
 
 See `docker-registry.json` for the full list of parameters, descriptions, and default values.
 
-Example using `aws-cli`:
+Interface using `aws-cli`:
 ```bash
 aws cloudformation create-stack \
     --template-body file://docker-registry.json \
     --stack-name <stack> \
     --capabilities CAPABILITY_IAM \
     --parameters \
+        ParameterKey=AvailabilityZones,ParameterValue=<availability-zone> \
+        ParameterKey=Ami,ParameterValue=<ami-id-for-your-region> \
         ParameterKey=KeyName,ParameterValue=<key> \
-        ParameterKey=RegistryAuth,ParameterValue='<auth_string_1>,<auth_string_2>' \
+        ParameterKey=S3Region,ParameterValue=<region> \
+        ParameterKey=RegistryAuth,ParameterValue='<auth_string_1> <auth_string_2>' \
         ParameterKey=S3Bucket,ParameterValue=<bucket> \
         ParameterKey=SslCertificate,ParameterValue=<cert_arn> \
+        ParameterKey=DnsPrefix,ParameterValue=<subdomain> \
         ParameterKey=DnsZone,ParameterValue=<dns_zone> \
         ParameterKey=VpcId,ParameterValue=<vpc_id> \
-        ParameterKey=Subnets,ParameterValue='<subnet_id_1>\,<subnet_id_2>' \
+        ParameterKey=Subnets,ParameterValue='<subnet_id_1> <subnet_id_2>' \
         ParameterKey=AdminSecurityGroup,ParameterValue=<sg_id>
 ```
 
-### 6. Test your registry
-Once the stack has been provisioned, try calling the registry using credentials associated with one of the auth strings. You should get a text response with the server version:
-```console
-$ curl -u <user>:<password> https://docker.mycompany.com
-"docker-registry server (prod) (v0.8.0)"
+Here are some example values:
+```bash
+aws cloudformation create-stack \
+    --template-body file://docker-registry.json \
+    --stack-name docker-registry \
+    --capabilities CAPABILITY_IAM \
+    --parameters \
+        ParameterKey=AvailabilityZones,ParameterValue=eu-west-1c \
+        ParameterKey=Ami,ParameterValue=ami-f3561384 \
+        ParameterKey=KeyName,ParameterValue=MyDockerRegistryKeypair \
+        ParameterKey=S3Region,ParameterValue=eu-west-1 \
+        ParameterKey=RegistryAuth,ParameterValue='admin:$apr1$Xm1YEZND$3OsrpDnlDdld8TAEwItOj0' \
+        ParameterKey=S3Bucket,ParameterValue=my-docker-registry-bucket \
+        ParameterKey=SslCertificate,ParameterValue=arn:aws:iam::377312681624:server-certificate/dockreg_myorg_com_certificate \
+        ParameterKey=DnsPrefix,ParameterValue=dockreg \
+        ParameterKey=DnsZone,ParameterValue=myorg.com \
+        ParameterKey=VpcId,ParameterValue=vpc-2324B043 \
+        ParameterKey=Subnets,ParameterValue='subnet-1a27c541' \
+        ParameterKey=AdminSecurityGroup,ParameterValue=sg-31c5ff51
 ```
+
+It's essential that the availability zone of the the Subnet matches the AvailabilityZones value.
+
+### 6. Test your registry
+Once the stack has been provisioned, try calling the registry using credentials associated with one of the auth strings. A verbose curl should give HTTP/1/1 200 OK. If you receive a 501 code, try again in a few minutes -- your server may still be initializing:
+```console
+$ curl -vv -u <user>:<password> https://dockreg.myorg.com
+* Rebuilt URL to: https://dockreg.myorg.com/
+* Hostname was NOT found in DNS cache
+*   Trying 54.264.180.59...
+* Connected to dockreg.topia.com (54.264.180.59) port 443 (#0)
+* TLS 1.2 connection using TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
+* Server certificate: dockreg.myorg.com
+* Server certificate: COMODO RSA Domain Validation Secure Server CA
+* Server certificate: COMODO RSA Certification Authority
+* Server certificate: AddTrust External CA Root
+* Server auth using Basic with user 'admin'
+> GET / HTTP/1.1
+> Authorization: Basic YWRtaW42ZG9ja2Vy
+> User-Agent: curl/7.37.1
+> Host: dockreg.myorg.com
+> Accept: */*
+>
+< HTTP/1.1 200 OK
+< Cache-Control: no-cache
+< Content-Type: application/json
+< Date: Wed, 24 Jun 2015 10:12:35 GMT
+< Expires: -1
+< Pragma: no-cache
+* Server nginx/1.6.2 (Ubuntu) is not blacklisted
+< Server: nginx/1.6.2 (Ubuntu)
+< Content-Length: 28
+< Connection: keep-alive
+<
+* Connection #0 to host dockreg.myorg.com left intact
+```
+
 _Note: if you didn't pass `DnsZone` and `DnsPrefix`, you'll want to set up a CNAME or Alias for the created ELB_
 
 To use the new registry, just generate a new `~/.dockercfg` by hand ([details](http://docs.docker.io/use/workingwithrepository/#authentication-file)) or via `docker login`:
@@ -114,4 +169,17 @@ Image 511136ea3c5a already pushed, skipping
 60d8d9423165: Image successfully pushed 
 31bd83ec56f3: Image successfully pushed 
 Pushing tag for rev [31bd83ec56f3] on {https://docker.mycompany.com/v1/repositories/myimage/tags/latest}
+```
+
+###7. Possible server filesystem full on current registry
+
+As of writing, the container starting the current version of registry leaves the EC2 instance disk full. The symptom
+is a push that starts running then fails with a server error. The quick answer is to 
+([clean up the instance docker volume](https://registry.hub.docker.com/u/martin/docker-cleanup-volumes/)). 
+
+SSH to the instance and:
+```bash
+sudo docker run -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/docker:/var/lib/docker \
+  --rm martin/docker-cleanup-volumes
 ```
